@@ -1,0 +1,9 @@
+.DS_Store
+.build/
+*.xcodeproj
+*.xcworkspace
+.swiftpm/
+DerivedData/
+# Never commit local secrets if you keep a config copy in-repo
+config.local.json
+.vscode/
