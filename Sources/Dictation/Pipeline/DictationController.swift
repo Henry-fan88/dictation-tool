@@ -29,11 +29,57 @@ final class DictationController {
     func toggle() {
         switch state {
         case .idle, .error:
-            startRecording()
+            if localSetupNeeded() {
+                runLocalSetup()
+            } else {
+                startRecording()
+            }
         case .recording:
             stopAndProcess()
-        case .transcribing, .organizing, .inserting:
+        case .settingUp, .transcribing, .organizing, .inserting:
             break // busy — ignore
+        }
+    }
+
+    /// Called at launch and after config reloads: if the local backend is
+    /// selected but not provisioned yet, start the first-run setup right away
+    /// instead of waiting for the first fn-press.
+    func ensureLocalSetupIfNeeded() {
+        switch state {
+        case .idle, .error:
+            if localSetupNeeded() { runLocalSetup() }
+        default:
+            break
+        }
+    }
+
+    // MARK: Local Whisper first-run setup
+
+    private func localSetupNeeded() -> Bool {
+        config.transcription.backend == .local && !WhisperSetup.isComplete(config.transcription.local)
+    }
+
+    private func runLocalSetup() {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            guard let model = WhisperSetup.promptForModel(defaultName: self.config.transcription.local.model) else {
+                return // user cancelled; next fn-press asks again
+            }
+            self.state = .settingUp("Preparing local Whisper setup…")
+            do {
+                try await WhisperSetup.run(model: model) { [weak self] message in
+                    DispatchQueue.main.async {
+                        if case .settingUp = self?.state { self?.state = .settingUp(message) }
+                    }
+                }
+                var updated = self.config
+                updated.transcription.local.model = model.name
+                self.config = updated
+                ConfigStore.save(updated)
+                self.state = .idle
+            } catch {
+                self.state = .error(self.describe(error))
+            }
         }
     }
 
@@ -137,6 +183,8 @@ final class DictationController {
                 apiKey: key,
                 language: config.transcription.cloud.language
             )
+        case .local:
+            return WhisperLocalTranscriber(config: config.transcription.local)
         }
     }
 

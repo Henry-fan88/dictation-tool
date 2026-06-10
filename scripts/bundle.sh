@@ -24,6 +24,12 @@ mkdir -p "${CONTENTS}/MacOS" "${CONTENTS}/Resources"
 cp "$EXECUTABLE" "${CONTENTS}/MacOS/${APP_NAME}"
 cp "${ROOT}/Resources/Info.plist" "${CONTENTS}/Info.plist"
 
+# SwiftPM resource bundle (whisper_server.py for the local Whisper backend).
+RESOURCE_BUNDLE="${BIN_PATH}/${APP_NAME}_${APP_NAME}.bundle"
+if [[ -d "$RESOURCE_BUNDLE" ]]; then
+  cp -R "$RESOURCE_BUNDLE" "${CONTENTS}/Resources/"
+fi
+
 # Ad-hoc sign so the Accessibility/Microphone grants persist across rebuilds.
 codesign --force --deep --sign - "$APP_DIR" >/dev/null 2>&1 || \
   echo "warning: ad-hoc codesign failed; permissions may need re-granting after rebuilds" >&2

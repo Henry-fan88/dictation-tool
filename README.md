@@ -22,7 +22,8 @@ fn key (CGEventTap) ──toggle──▶ AudioRecorder (AVAudioEngine → 16 kH
                                       │ stop
                                       ▼
                          Transcriber  ┌─ cloud  (Whisper-style API)
-                          (protocol)  └─ apple  (SFSpeechRecognizer, on-device)
+                          (protocol)  ├─ apple  (SFSpeechRecognizer, on-device)
+                                      └─ local  (OpenAI Whisper, on-device Python helper)
                                       ▼ raw text
                          LLMProvider  ┌─ openaiCompatible (openai/gemini/deepseek/kimi/glm/…)
                           (protocol)  └─ anthropic        (claude /v1/messages)
@@ -37,7 +38,7 @@ adding a backend is a single small file.
 |---|---|
 | `Hotkey/FnKeyMonitor.swift` | Global `fn`-key toggle via a `CGEventTap` |
 | `Audio/AudioRecorder.swift` | Mic capture → 16 kHz mono WAV |
-| `Transcription/*` | `Transcriber` protocol + cloud (Whisper) & Apple backends |
+| `Transcription/*` | `Transcriber` protocol + cloud (Whisper), Apple & local Whisper backends |
 | `LLM/*` | `LLMProvider` protocol + OpenAI-compatible & Anthropic backends |
 | `Insertion/TextInserter.swift` | Inserts text into the focused app |
 | `Pipeline/DictationController.swift` | Orchestrates record → transcribe → organize → insert |
@@ -53,6 +54,12 @@ adding a backend is a single small file.
 - An API key for whatever cloud transcription / LLM provider you choose
   (not needed if you use the on-device Apple transcription backend with the LLM
   step disabled)
+- For the `local` transcription backend: nothing up front — on first use the
+  app offers a model picker, downloads the checkpoint, and provisions a
+  private Python environment with
+  [`openai-whisper`](https://github.com/openai/whisper) automatically
+  (a `python3` on the machine is required, which the Xcode Command Line Tools
+  already provide)
 
 ## Build & run
 
@@ -116,7 +123,7 @@ on the LLM polishing (the headline feature).
 ```jsonc
 {
   "transcription": {
-    "backend": "apple",                // "apple" (no key) | "cloud"
+    "backend": "apple",                // "apple" (no key) | "cloud" | "local"
     "cloud": {
       "baseURL": "https://api.openai.com/v1",
       "model": "whisper-1",
@@ -127,6 +134,13 @@ on the LLM polishing (the headline feature).
     "apple": {
       "locale": "en-US",
       "onDevice": false                // true = audio never leaves the Mac
+    },
+    "local": {
+      "pythonPath": "",                // "" = app-managed env (auto-installed); or your own python with openai-whisper
+      "modelDir": "",                  // "" = app-managed models dir (auto-downloaded); or your own .pt folder
+      "model": "turbo",                // turbo | large-v3 | medium | small | base | tiny
+      "device": "cpu",                 // torch device; "cpu" is the safe default
+      "language": null                 // ISO-639-1 e.g. "en", or null = auto
     }
   },
   "llm": {
@@ -168,6 +182,40 @@ For **cloud transcription**, any OpenAI-compatible `/audio/transcriptions`
 endpoint works (OpenAI Whisper, or Groq with `baseURL` `…/openai/v1` and model
 `whisper-large-v3`).
 
+### Local Whisper transcription
+
+The `local` backend runs [OpenAI Whisper](https://github.com/openai/whisper)
+entirely on your Mac — no audio leaves the machine and no STT API key is
+needed.
+
+**Zero-setup first run.** Switch `transcription.backend` to `"local"` (leave
+`pythonPath` and `modelDir` empty) and reload the config. The app detects that
+nothing is provisioned yet and walks you through a one-time setup:
+
+1. A dialog lets you pick a model — `tiny` (76 MB) up to `large-v3` (3.1 GB),
+   with `turbo` (1.6 GB) recommended as the best accuracy-per-second.
+2. The checkpoint is downloaded from OpenAI's official URLs (SHA-256 verified)
+   to `~/Library/Application Support/Dictation/models/`, and a private Python
+   environment with `openai-whisper` is created next to it. Progress shows in
+   the menu bar.
+
+Everything is downloaded **once** and reused across launches, rebuilds, and
+app updates. You can also pre-provision from the terminal:
+
+```bash
+.build/release/Dictation --setup-local turbo
+```
+
+**Already have Whisper installed?** Point `pythonPath` at any Python with
+`openai-whisper` importable and `modelDir` at your folder of `.pt` checkpoints,
+and the app uses those instead — nothing is re-downloaded.
+
+At runtime the app spawns a small resident helper (`whisper_server.py`) that
+loads the model **once** and serves every dictation from memory, so only the
+first dictation after launch pays the model-load cost (a few seconds for
+`turbo`). The helper exits automatically when the app quits. ffmpeg is **not**
+required — the helper decodes the recorder's WAV directly.
+
 ---
 
 ## Roadmap
@@ -177,7 +225,7 @@ endpoint works (OpenAI Whisper, or Groq with `baseURL` `…/openai/v1` and model
 - [ ] Streaming partial transcription with live preview
 - [ ] Per-app prompt profiles (email vs. chat vs. code comments)
 - [ ] Settings UI instead of hand-edited JSON
-- [ ] Local Whisper (whisper.cpp) transcription backend
+- [x] Local Whisper transcription backend (openai-whisper via resident Python helper)
 - [ ] Sound/HUD feedback on start/stop
 - [ ] Notarized, signed release build + auto-update
 

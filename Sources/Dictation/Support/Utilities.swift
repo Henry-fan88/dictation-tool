@@ -13,6 +13,7 @@ enum DictationError: LocalizedError {
 /// The lifecycle the app moves through for a single dictation.
 enum AppState: Equatable {
     case idle
+    case settingUp(String) // one-time local-Whisper provisioning, with progress text
     case recording
     case transcribing
     case organizing

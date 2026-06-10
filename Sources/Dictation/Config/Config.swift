@@ -6,6 +6,7 @@ import AppKit
 enum TranscriptionBackend: String, Codable {
     case cloud   // hosted Whisper-style STT API
     case apple   // on-device SFSpeechRecognizer
+    case local   // on-device OpenAI Whisper via a resident Python helper
 }
 
 enum LLMProviderKind: String, Codable {
@@ -48,11 +49,36 @@ struct AppleSTTConfig: Codable {
     var onDevice: Bool = false    // true = never leaves the machine (lower accuracy)
 }
 
+/// Local OpenAI Whisper (the Python package) with checkpoints already on
+/// disk. The app spawns `whisper_server.py` with this interpreter; the model
+/// stays resident between dictations.
+struct LocalSTTConfig: Codable {
+    var pythonPath: String = ""   // python with `openai-whisper` installed (e.g. a venv's bin/python)
+    var modelDir: String = ""     // folder holding the downloaded .pt checkpoints
+    var model: String = "turbo"   // whisper model name: turbo, medium, base, …
+    var device: String = "cpu"    // torch device; cpu is the safe choice on macOS
+    var language: String? = nil   // ISO-639-1, e.g. "en"; nil = auto-detect
+}
+
 struct TranscriptionConfig: Codable {
     // Default to on-device Apple speech so a fresh install works with no API key.
     var backend: TranscriptionBackend = .apple
     var cloud: CloudSTTConfig = .init()
     var apple: AppleSTTConfig = .init()
+    var local: LocalSTTConfig = .init()
+
+    init() {}
+
+    // Decode leniently: config files written before a backend existed are
+    // missing its section, and that must not throw the whole config back to
+    // defaults (see diagnose()).
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        backend = try c.decodeIfPresent(TranscriptionBackend.self, forKey: .backend) ?? .apple
+        cloud = try c.decodeIfPresent(CloudSTTConfig.self, forKey: .cloud) ?? .init()
+        apple = try c.decodeIfPresent(AppleSTTConfig.self, forKey: .apple) ?? .init()
+        local = try c.decodeIfPresent(LocalSTTConfig.self, forKey: .local) ?? .init()
+    }
 }
 
 struct LLMConfig: Codable {
@@ -155,6 +181,15 @@ enum ConfigStore {
             let cfg = try JSONDecoder().decode(AppConfig.self, from: data)
             lines.append("Decode: OK")
             lines.append("transcription.backend = \(cfg.transcription.backend.rawValue)")
+            if cfg.transcription.backend == .local {
+                let local = cfg.transcription.local
+                let python = WhisperSetup.effectivePythonPath(local)
+                let modelDir = WhisperSetup.effectiveModelDir(local)
+                lines.append("local.pythonPath -> \(python) (executable: \(FileManager.default.isExecutableFile(atPath: python)))")
+                lines.append("local.modelDir   -> \(modelDir) (exists: \(FileManager.default.fileExists(atPath: modelDir)))")
+                lines.append("local.model      = \(local.model)")
+                lines.append("local setup complete: \(WhisperSetup.isComplete(local))")
+            }
             lines.append("llm.enabled  = \(cfg.llm.enabled)")
             lines.append("llm.provider = \(cfg.llm.provider.rawValue)")
             lines.append("llm.model    = \(cfg.llm.model)")

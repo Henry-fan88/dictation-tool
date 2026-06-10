@@ -61,6 +61,10 @@ final class StatusItemController: NSObject {
             button.title = "🎙️"
             statusLine.title = "Idle — press fn to dictate"
             toggleItem.title = "Start Dictation"
+        case .settingUp(let message):
+            button.title = "⬇️"
+            statusLine.title = message
+            toggleItem.title = "Setting up…"
         case .recording:
             button.title = "🔴"
             statusLine.title = "Recording… press fn to stop"

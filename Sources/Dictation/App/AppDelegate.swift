@@ -23,6 +23,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.controller.updateConfig(fresh)
             self?.fnMonitor.suppressDefault = fresh.hotkey.suppressFnDefault
             self?.statusController.update(.idle)
+            self?.controller.ensureLocalSetupIfNeeded()
         }
         statusController.onCheckPermissions = { [weak self] in self?.requestPermissions() }
 
@@ -32,6 +33,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         requestPermissions()
         Permissions.requestSpeech { _ in }
         startFnMonitorWithRetry()
+        controller.ensureLocalSetupIfNeeded()
     }
 
     /// The event tap can only be created once Accessibility is granted, which

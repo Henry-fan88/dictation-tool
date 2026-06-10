@@ -7,7 +7,10 @@ let package = Package(
     targets: [
         .executableTarget(
             name: "Dictation",
-            path: "Sources/Dictation"
+            path: "Sources/Dictation",
+            resources: [
+                .copy("Resources/whisper_server.py")
+            ]
         )
     ]
 )
